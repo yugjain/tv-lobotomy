@@ -1,0 +1,58 @@
+# Toshiba Android TV with MIC (device songshan, Hisense/MediaTek), Android TV 11, firmware RTT2.220118.001
+# ro.product.model="Toshiba TV with MIC", ro.product.manufacturer="Hisense", board="songshan"
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/toshiba-tv-songshan/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/toshiba-tv-songshan/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED for user 0, never uninstalled.
+#
+# Load-bearing packages KEPT on this set:
+#   com.hisense.tv.hitvinput                 # TV & HDMI input manager
+#   com.vt.tv.input                          # Inputs / source overlay menu
+#   com.mediatek.wwtv.tvcenter               # Live TV / HDMI player
+#   com.hisense.tv.smartsense                # DO NOT DISABLE: causes boot failure on this firmware
+#   com.vt.tv.smartsense.ui                  # DO NOT DISABLE: causes boot failure on this firmware
+#   com.hisense.tv.smartservice              # Smartsense background service
+#   com.vt.tv.commonui                       # Common UI framework
+#   com.mediatek.autopair                    # Remote control Bluetooth pairing
+#   com.google.android.inputmethod.latin     # On-screen keyboard (Gboard)
+#   com.android.tv.settings                  # Settings app
+#   com.google.android.katniss               # Google Assistant
+#   com.google.android.apps.mediashell       # Chromecast built-in
+#   com.mediatek.AirplayAPK                  # AirPlay receiver
+#   com.mediatek.partner.airplay             # AirPlay integration
+#   com.hisense.tv.ota                       # OTA update service
+#   com.hisense.remoteupgrade                # Remote upgrade service
+#   com.vt.tv.usbota                         # USB firmware update service
+
+# Retail demos, store modes, factory tools, and cleaner service
+fusion.android.tv.demo
+com.hisense.storemode
+com.mstar.android.tv.disclaimercustomization
+com.hisense.uifac
+com.hisense.fte
+com.hisense.tv.protector
+
+# Background IoT, unused Miracast, and telemetry/tracking
+com.vt.tv.aiot
+com.vt.tv.homekitproxy
+com.vt.miracast
+com.google.android.feedback
+com.google.android.partnersetup
+android.autoinstalls.config.google.gtvpai
+
+# Unused television system components, Google video store, and unchecked third-party apps
+com.android.printspooler
+com.google.android.syncadapters.calendar
+com.android.providers.calendar
+com.android.providers.contacts
+com.google.android.play.games
+com.google.android.videos
+com.graymatrix.did
+com.mxtech.videoplayer.television
+com.tcl.browser
+
+# Launcher phase: stock Google TV launcher and setup wizard
+# NOTE: com.google.android.tungsten.setupwraith must only be disabled AFTER forgetting and
+# reconnecting to Wi-Fi in TV Settings, otherwise Android drops the saved setup Wi-Fi profile.
+com.google.android.apps.tv.launcherx
+com.google.android.tungsten.setupwraith

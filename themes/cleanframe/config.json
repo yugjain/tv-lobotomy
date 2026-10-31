@@ -1,0 +1,19 @@
+{
+  "layout": "list",
+  "cleanframe_dock": true,
+  "dock_apps": [
+    "com.netflix.ninja",
+    "com.amazon.amazonvideo.livingroom",
+    "com.google.android.youtube.tv",
+    "in.startv.hotstar",
+    "com.apple.atve.androidtv.appletv",
+    "com.spotify.tv.android",
+    "com.sonyliv",
+    "com.vt.tv.mediacenter",
+    "com.android.vending",
+    "com.android.tv.settings"
+  ],
+  "wallpaper": true,
+  "sky_intensity": 0,
+  "ambient_glow": false
+}

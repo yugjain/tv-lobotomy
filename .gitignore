@@ -1,0 +1,20 @@
+tools/venv/
+tools/adbkey/
+__pycache__/
+launcher/.gradle/
+launcher/build/
+launcher/app/build/
+launcher/.tools/
+launcher/local.properties
+
+# your own TV's dumps (serial, android_id, device names) stay local
+backup/
+backup-*/
+# the handover recovery file the install script may write next to the repo
+cleanyourtv-handover-*.txt
+
+# wallpapers are yours, and the ones this fork was built against are third-party photos
+themes/cleanframe/wallpaper*.jpg
+
+*.log
+.DS_Store

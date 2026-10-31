@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="44dp"
+    android:height="44dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Bar 1 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 3.5,6.5 A 1.5,1.5 0 0,1 6.5,6.5 L 6.5,17.5 A 1.5,1.5 0 0,1 3.5,17.5 Z" />
+    <!-- Bar 2 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 8.5,4 A 1.5,1.5 0 0,1 11.5,4 L 11.5,20 A 1.5,1.5 0 0,1 8.5,20 Z" />
+    <!-- Bar 3 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 13.5,7 A 1.5,1.5 0 0,1 16.5,7 L 16.5,17 A 1.5,1.5 0 0,1 13.5,17 Z" />
+    <!-- Bar 4 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 18.5,5 A 1.5,1.5 0 0,1 21.5,5 L 21.5,19 A 1.5,1.5 0 0,1 18.5,19 Z" />
+</vector>
