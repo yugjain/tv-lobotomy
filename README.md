@@ -71,6 +71,10 @@ You need:
 - **Python 3.10+** for the ADB tooling (no `adb` binary required).
 - The TV's IP address: Settings → Network, or look for it in `arp -a`.
 
+The commands below are macOS/Linux shell. On Windows, every script has a PowerShell twin
+(`launcher\build-and-install.ps1`, `tools\disable.ps1`, …) — see
+[`UPSTREAM-README.md`](UPSTREAM-README.md).
+
 ## Install
 
 ### 1. Turn on debugging on the TV
