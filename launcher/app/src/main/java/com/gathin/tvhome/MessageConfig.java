@@ -26,8 +26,8 @@ final class MessageConfig {
     static final float SHADOW_RADIUS_DP = 4f;
     static final float SHADOW_ALPHA = 0.5f;
 
-    /** Bottom margin as a fraction of the screen height (0.04 = 4%). */
-    static final float BOTTOM_MARGIN_FRACTION = 0.04f;
+    /** Bottom margin as a fraction of the screen height. About one 15sp line lower than the old 4%. */
+    static final float BOTTOM_MARGIN_FRACTION = 0.012f;
     /** Only used if MESSAGE_POSITION is BOTTOM_RIGHT. */
     static final float SIDE_MARGIN_DP = 72f;
 
