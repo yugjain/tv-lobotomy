@@ -151,6 +151,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean promptsPaused;
     /** Rebuild the tiles on resume: Home was fully hidden by an app, or Home was pressed. Not after a side panel such as Wi-Fi settings. */
     private boolean rebuildOnResume = true;
+    /** A package was installed, removed or changed while Home was in the background; rebuild on the next resume. */
+    private boolean appsDirty;
+    /** The tiles have been built at least once in this activity. */
+    private boolean tilesBuilt;
+    /** The activity is started (visible), so a package change can be redrawn immediately instead of deferred. */
+    private boolean started;
+    /** Home was pressed while Home was already in front: focus the first tile once the resume finishes. */
+    private boolean focusTopOnResume;
     /** The Inputs or Module cards dropdown while one is open, so onPause can close it. */
     private PopupWindow openPopup;
 
@@ -198,7 +206,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             // Updates send REMOVED followed by ADDED; keep the tile until the new APK is ready.
             if (Intent.ACTION_PACKAGE_REMOVED.equals(intent.getAction())
                     && intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return;
-            reloadApps(false);
+            // While stopped, only remember it: rebinding offscreen would waste the work and could
+            // try to show the card prompt on an invisible window.
+            if (started) reloadApps(false);
+            else appsDirty = true;
         }
     };
     private final Runnable minuteTick = new Runnable() {
@@ -284,9 +295,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
 
             TextView btnListInputs = findViewById(R.id.btnListInputs);
-            TextView btnListAllApps = findViewById(R.id.btnListAllApps);
             TextView btnListSettings = findViewById(R.id.btnListSettings);
-            TextView[] quietButtons = new TextView[]{btnListInputs, btnListAllApps, btnListSettings};
+            TextView[] quietButtons = new TextView[]{btnListInputs, btnListSettings};
             for (TextView btn : quietButtons) {
                 if (btn == null) continue;
                 btn.setShadowLayer(8f * density, 0f, 2f * density, 0x73000000);
@@ -306,7 +316,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
 
             if (btnListInputs != null) btnListInputs.setOnClickListener(v -> showInputs());
-            if (btnListAllApps != null) btnListAllApps.setOnClickListener(v -> focusTile(0));
             if (btnListSettings != null) {
                 btnListSettings.setOnClickListener(v -> open(systemIntent(Settings.ACTION_SETTINGS)));
                 btnListSettings.setOnLongClickListener(v -> {
@@ -315,14 +324,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 });
             }
             View.OnKeyListener quietUtilLeftKey = (v, keyCode, event) -> {
-                if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                     focusTile(lastFocused);
                     return true;
                 }
+                // The stack has two buttons now, so Up on the top one and Down on the bottom one have
+                // nowhere to go: stay put instead of letting the focus finder jump into the list.
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP && v.getId() == R.id.btnListInputs) return true;
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && v.getId() == R.id.btnListSettings) return true;
                 return false;
             };
             if (btnListInputs != null) btnListInputs.setOnKeyListener(quietUtilLeftKey);
-            if (btnListAllApps != null) btnListAllApps.setOnKeyListener(quietUtilLeftKey);
             if (btnListSettings != null) btnListSettings.setOnKeyListener(quietUtilLeftKey);
         }
         greeting = findViewById(R.id.greeting);
@@ -497,6 +510,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         packageFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
         packageFilter.addAction(Intent.ACTION_PACKAGE_CHANGED);
         packageFilter.addDataScheme("package");
+        // Registered for the activity's whole life, not just while visible: an install that happens
+        // while another app is in front must still be noticed, but it is only queued (appsDirty).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(packageReceiver, packageFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(packageReceiver, packageFilter);
+        }
 
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
@@ -577,17 +597,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.scrollToPosition(0);
         lastFocused = 0;
         lastFocusedKey = adapter.getItemCount() > 0 ? adapter.keyAt(0) : null;
-        rebuildOnResume = true;
+        focusTopOnResume = true;
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(packageReceiver, packageFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(packageReceiver, packageFilter);
-        }
+        started = true;
         if (isListLayout) {
             IntentFilter dateFilter = new IntentFilter();
             dateFilter.addAction(Intent.ACTION_DATE_CHANGED);
@@ -613,14 +629,34 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         promptsPaused = false;
         if (rebuildOnResume) {
             tilesReady = false;
-            reloadApps(true);
+            // Returning from an app (or pressing Home) used to re-query every launchable, decode all
+            // icons and replay the 420ms tile entrance. Nothing on screen has changed, so only rebuild
+            // when a package really was added, removed or updated while we were away. With module cards
+            // on, the discovery step still has to run, so those keep the old path.
+            if (moduleCards || appsDirty || !tilesBuilt) {
+                appsDirty = false;
+                reloadApps(true);
+            } else {
+                tilesReady = true;
+            }
         }
         rebuildOnResume = false;
-        updateGreeting();
-        updateWifiLabel();
-        updateInputsButton();
-        sky.update();
-        handler.postDelayed(minuteTick, MINUTE_MS);
+        if (focusTopOnResume) {
+            focusTopOnResume = false;
+            // Jump, don't smooth-scroll: Home-on-Home used to rebuild the list at the top, and a long
+            // animated scroll to it costs ~37 frames on this class of TV.
+            grid.scrollToPosition(0);
+            grid.post(() -> focusTile(0));
+        }
+        if (!isListLayout) {
+            // In list mode the header, Wi-Fi pill and sky are all hidden, and the clock is a TextClock:
+            // none of this work would reach a visible view. The date has its own change receiver.
+            updateGreeting();
+            updateWifiLabel();
+            updateInputsButton();
+            sky.update();
+            handler.postDelayed(minuteTick, MINUTE_MS);
+        }
         if (festive && diya != null) {
             diya.start();
             LocalDate today = LocalDate.now();
@@ -683,6 +719,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         adapter.reload(cards.isEmpty() ? none : CardFeature.run(() -> Cards.shown(cards), none));
         lastFocusedKey = returnKey;
         lastFocused = returnSlot;
+        tilesBuilt = true;
     }
 
     /**
@@ -716,7 +753,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onStop() {
         super.onStop();
-        unregisterReceiver(packageReceiver);
+        started = false;
         if (isListLayout) {
             try {
                 unregisterReceiver(dateReceiver);
@@ -750,6 +787,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        try {
+            unregisterReceiver(packageReceiver);
+        } catch (IllegalArgumentException ignored) {
+        }
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
         if (tim != null) tim.unregisterCallback(inputCallback);
@@ -1006,7 +1047,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 View listQuietUtils = findViewById(R.id.listQuietUtils);
                 if (listQuietUtils != null && listQuietUtils.getVisibility() == View.VISIBLE) {
-                    View btn = findViewById(R.id.btnListAllApps);
+                    View btn = findViewById(R.id.btnListInputs);
                     if (btn != null) btn.requestFocus();
                 }
                 return true;
@@ -1039,7 +1080,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private void focusTile(int position) {
         if (adapter.getItemCount() == 0) {
-            btnWifi.requestFocus();
+            // No tiles: put focus on something the list layout can actually show.
+            View fallback = isListLayout ? findViewById(R.id.btnListSettings) : btnWifi;
+            if (fallback != null) fallback.requestFocus();
             return;
         }
         final int pos = adapter.focusablePosition(Math.max(0, Math.min(position, adapter.getItemCount() - 1)));
@@ -1096,6 +1139,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** Shows the Wi-Fi network name on the button when we can read it, otherwise the connection type. */
     private void updateWifiLabel() {
+        if (isListLayout) return;   // the pill lives in the header, which the list layout hides
         String text = getString(R.string.wifi);
         boolean vpn = false, online = false;
         int icon = R.drawable.ic_wifi;
@@ -1241,6 +1285,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** Hides the Inputs pill when it would have nothing to list: streaming boxes have no HDMI-in, AV or tuner. */
     private void updateInputsButton() {
+        if (isListLayout) return;   // the pill lives in the header, which the list layout hides
         boolean any = liveTvIntent() != null || !sourcePanelService.isEmpty();
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
         if (!any && tim != null) {
@@ -1305,7 +1350,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** Dropdown menu under the Inputs pill: HDMI ports (with connection state), AV and Live TV. */
     private void showInputs() {
-        View anchor = findViewById(R.id.btnInputs);
+        View anchor = popupAnchor(R.id.btnInputs, R.id.btnListInputs);
         View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
         LinearLayout rows = panel.findViewById(R.id.rows);
 
@@ -1383,7 +1428,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         popup.setWidth(Math.max(width, panel.getMeasuredWidth()));
 
         int alignment = getResources().getBoolean(R.bool.rtl_menu_bar) ? Gravity.END : Gravity.START;
-        dropIn(popup, panel, anchor, alignment);
+        dropIn(popup, panel, anchor, alignment, isListLayout);
         rows.getChildAt(0).requestFocus();
     }
 
@@ -1400,15 +1445,37 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return popup;
     }
 
-    /** Drop in: fade and unfold from the top edge, hanging under the anchor pill. */
+    /** Drop in: fade and unfold from the edge nearest the anchor pill. */
     private void dropIn(PopupWindow popup, View panel, View anchor, int gravity) {
+        dropIn(popup, panel, anchor, gravity, false);
+    }
+
+    /**
+     * @param above true hangs the panel over the anchor (for the list layout, whose pills sit at the
+     *              bottom edge) instead of under it.
+     */
+    private void dropIn(PopupWindow popup, View panel, View anchor, int gravity, boolean above) {
+        int gap = (int) (10 * density);
         panel.setAlpha(0f);
-        panel.setPivotY(0f);
+        panel.setPivotY(above ? panel.getMeasuredHeight() : 0f);
         panel.setScaleY(0.92f);
-        panel.setTranslationY(-8 * density);
-        popup.showAsDropDown(anchor, 0, (int) (10 * density), gravity);
+        panel.setTranslationY(above ? gap : -gap);
+        int dy = above ? -(anchor.getHeight() + panel.getMeasuredHeight() + gap) : gap;
+        popup.showAsDropDown(anchor, 0, dy, gravity);
         panel.animate().alpha(1f).scaleY(1f).translationY(0f).setDuration(220)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+    }
+
+    /**
+     * The pill a dropdown should hang from. The list layout hides the header pills, so a popup
+     * anchored to one of those opened in the top-left corner instead of next to its button.
+     */
+    private View popupAnchor(int headerId, int listId) {
+        if (isListLayout) {
+            View list = findViewById(listId);
+            if (list != null && list.getVisibility() == View.VISIBLE) return list;
+        }
+        return findViewById(headerId);
     }
 
     private void addSeparator(LinearLayout rows) {
@@ -1449,7 +1516,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** Keep a normal Settings click for the TV; the launcher's choices live behind hold OK. */
     private void showSettingsMenu() {
-        View anchor = findViewById(R.id.btnSettings);
+        View anchor = popupAnchor(R.id.btnSettings, R.id.btnListSettings);
         View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
         LinearLayout rows = panel.findViewById(R.id.rows);
         PopupWindow popup = glassPopup(panel, (int) (200 * density));
@@ -1460,7 +1527,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         popup.setWidth(Math.max((int) (200 * density), panel.getMeasuredWidth()));
         // Hebrew puts Settings at the left of the header: grow the menu inward from it.
         dropIn(popup, panel, anchor, getResources().getBoolean(R.bool.rtl_menu_bar)
-                ? Gravity.START : Gravity.END);
+                ? Gravity.START : Gravity.END, isListLayout);
         rows.getChildAt(0).requestFocus();
     }
 
@@ -1589,7 +1656,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void showModuleCardsNow() {
-        View anchor = findViewById(R.id.btnSettings);
+        View anchor = popupAnchor(R.id.btnSettings, R.id.btnListSettings);
         View panel = getLayoutInflater().inflate(R.layout.popup_cards, root, false);
         LinearLayout rows = panel.findViewById(R.id.rows);
         final PopupWindow popup = glassPopup(panel, (int) (400 * density));
@@ -1621,9 +1688,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
         int[] at = new int[2];
         anchor.getLocationInWindow(at);
-        int room = root.getHeight() - (at[1] + anchor.getHeight()) - (int) (34 * density);
+        int room = isListLayout
+                ? root.getHeight() - (int) (120 * density)
+                : root.getHeight() - (at[1] + anchor.getHeight()) - (int) (34 * density);
         popup.setHeight(Math.min(panel.getMeasuredHeight(), Math.max(room, (int) (120 * density))));
-        dropIn(popup, panel, anchor, Gravity.END);
+        dropIn(popup, panel, anchor, Gravity.END, isListLayout);
         rows.getChildAt(0).requestFocus();
     }
 

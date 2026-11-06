@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RadialGradient;
+import android.graphics.RectF;
 import android.graphics.Shader;
 import android.util.AttributeSet;
 import android.view.View;
@@ -33,6 +34,13 @@ public class ListScrimView extends View {
 
     private int lastWidth = 0;
     private int lastHeight = 0;
+
+    /**
+     * The only pixels each gradient can touch. Both fade to zero alpha at their radius, so drawing
+     * these rects is pixel-identical to drawing the screen but shades ~75% fewer pixels.
+     */
+    private final RectF topBounds = new RectF();
+    private final RectF bottomBounds = new RectF();
 
     public ListScrimView(Context context) {
         super(context);
@@ -78,16 +86,18 @@ public class ListScrimView extends View {
         if (lastWidth <= 0 || lastHeight <= 0) return;
         float density = getResources().getDisplayMetrics().density;
 
-        // Top-right: centered exactly on the top-right corner (lastWidth, 0)
-        // Radius about 650px. Reaches exactly 0 alpha before radius ends.
-        float radiusTop = 650f;
+        // Top-right: centered exactly on the top-right corner (lastWidth, 0).
+        // 325dp reaches 650px on a 1080p/320dpi TV, so the look is unchanged there and scales elsewhere.
+        float radiusTop = 325f * density;
         buildTopRadialShader(topPaint, lastWidth, 0f, radiusTop, SCRIM_PEAK_ALPHA);
+        topBounds.set(lastWidth - radiusTop - 1f, -1f, lastWidth + 1f, radiusTop + 1f);
 
         // Bottom-right: centered on the bottom-right corner (lastWidth, lastHeight)
-        // 400dp inward (800px), 350dp upward (700px).
+        // 400dp inward, 350dp upward.
         float rxBot = 400f * density;
         float ryBot = 350f * density;
         buildBottomRadialShader(bottomPaint, lastWidth, lastHeight, rxBot, ryBot, BOTTOM_SCRIM_PEAK_ALPHA);
+        bottomBounds.set(lastWidth - rxBot - 1f, lastHeight - ryBot - 1f, lastWidth + 1f, lastHeight + 1f);
     }
 
     private static void buildTopRadialShader(Paint paint, float cx, float cy, float radius, float peakAlpha) {
@@ -132,8 +142,9 @@ public class ListScrimView extends View {
         super.onDraw(canvas);
         if (lastWidth <= 0 || lastHeight <= 0) return;
 
-        // Draw full-screen overlay so neither gradient is ever clipped by a bounding box
-        canvas.drawRect(0f, 0f, lastWidth, lastHeight, topPaint);
-        canvas.drawRect(0f, 0f, lastWidth, lastHeight, bottomPaint);
+        // Each shader is CLAMP and already transparent past its radius, so the rects below clip
+        // nothing visible; they just stop the GPU shading the 3.1M pixels that would stay clear.
+        canvas.drawRect(topBounds, topPaint);
+        canvas.drawRect(bottomBounds, bottomPaint);
     }
 }

@@ -12,11 +12,11 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
+import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.KeyEvent;
@@ -67,6 +67,8 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         final Drawable icon;
         /** Text under the tile when it is focused in the grid: the label, plus the caption for a card. */
         final String name;
+        /** The app declares its own icon; false means the system's blank fallback would be shown. */
+        boolean hasIcon = true;
         /** Ambient glow colour; 0 until sampled from the banner, or the card's accent from the start. */
         int ambient;
 
@@ -130,6 +132,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     private final boolean cleanframeDock;
     private final boolean isListLayout;
     private final List<Entry> items = new ArrayList<>();
+    /** Clean icons and labels are the same for every bind; build each one once per package. */
+    private final Map<String, Drawable> cleanIcons = new HashMap<>();
+    private final Map<String, String> cleanLabels = new HashMap<>();
 
     AppAdapter(Context ctx, TileListener listener, int dockSize, Config cfg) {
         this.ctx = ctx;
@@ -160,6 +165,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         Map<String, Cards.Card> cardByPkg = new HashMap<>();
         for (Cards.Card c : cards) cardByPkg.put(c.pkg, c);
         List<Entry> fresh = new ArrayList<>();
+        // An app update brings a new icon and label; build them again on the next bind.
+        cleanIcons.clear();
+        cleanLabels.clear();
         for (ResolveInfo ri : found) {
             if (ri.activityInfo == null) continue;
             String pkg = ri.activityInfo.packageName;
@@ -167,15 +175,21 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
             ComponentName component = new ComponentName(pkg, ri.activityInfo.name);
             Cards.Card card = cardByPkg.get(pkg);
             if (card != null && !card.component.equals(component)) continue;   // the card stands in for this tile
-            Drawable banner = loadBanner(pm, ri);
+            // The list layout never shows a banner, and its glow is a colour no one draws; loading the
+            // artwork there costs megabytes of native heap and decode time on every reload for nothing.
+            Drawable banner = isListLayout ? null : loadBanner(pm, ri);
             Drawable icon = ri.loadIcon(pm);
+            Entry entry;
             if (card != null) {
-                fresh.add(new Entry(Entry.CARD, card.label, component, banner, icon, card.caption, card.accent));
+                entry = new Entry(Entry.CARD, card.label, component, banner, icon, card.caption, card.accent);
             } else {
                 // Same cleaner as the card prompt: an app label with a bidi override or line separator must not
                 // redraw the tile name as something else (#117).
-                fresh.add(new Entry(Cards.cleanLabel(String.valueOf(ri.loadLabel(pm)), pkg), component, banner, icon));
+                entry = new Entry(Cards.cleanLabel(String.valueOf(ri.loadLabel(pm)), pkg), component, banner, icon);
             }
+            // loadIcon() falls back to the system's grey placeholder; remember when that is what happened.
+            entry.hasIcon = ri.activityInfo.icon != 0 || ri.activityInfo.applicationInfo.icon != 0;
+            fresh.add(entry);
         }
         Collections.sort(fresh, (a, b) -> {
             int fa = favourites.indexOf(a.pkg), fb = favourites.indexOf(b.pkg);
@@ -266,18 +280,14 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         h.card.setFocusable(true);
         boolean focused = h.card.isFocused();   // a rebind after reload() can hit the focused tile
         if (isListLayout) {
-            h.card.setBackgroundResource(R.drawable.list_item_card_bg);
+            // The row background and the hidden banner/name views come from item_app_list.xml, so a
+            // bind only has to change what varies: icon, label and the focus alpha.
             h.card.setAlpha(focused ? 1f : 0.72f);
             h.card.setScaleX(focused && animations ? 1.04f : 1f);
             h.card.setScaleY(focused && animations ? 1.04f : 1f);
-            if (h.name != null) h.name.setVisibility(View.GONE);
-            if (h.banner != null) {
-                h.banner.setImageDrawable(null);
-                h.banner.setVisibility(View.GONE);
-            }
             h.icon.setImageDrawable(getCleanIcon(e));
             h.icon.setVisibility(View.VISIBLE);
-            h.label.setText(getCleanLabel(e));
+            h.label.setText(cleanLabel(e));
             h.label.setVisibility(View.VISIBLE);
             h.card.setOnClickListener(v -> launch(e));
             h.card.setOnLongClickListener(v -> {
@@ -455,6 +465,8 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
 
     private Drawable getCleanIcon(Entry e) {
         if (e == null || e.pkg == null) return null;
+        Drawable cached = cleanIcons.get(e.pkg);
+        if (cached != null) return cached;
         String pkg = e.pkg.toLowerCase();
         int res = 0;
         if (pkg.contains("netflix")) {
@@ -484,14 +496,65 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         }
         if (res != 0) {
             Drawable d = ctx.getDrawable(res);
-            if (d != null) return d;
+            if (d != null) {
+                cleanIcons.put(e.pkg, d);
+                return d;
+            }
         }
-        if (e.icon != null) {
-            Drawable copy = e.icon.getConstantState() != null ? e.icon.getConstantState().newDrawable().mutate() : e.icon.mutate();
-            copy.setColorFilter(new PorterDuffColorFilter(0xFFFFFFFF, PorterDuff.Mode.SRC_IN));
-            return copy;
+        if (!e.hasIcon) {
+            Drawable monogram = new MonogramDrawable(cleanLabel(e),
+                    ctx.getResources().getFont(R.font.outfit_medium));
+            cleanIcons.put(e.pkg, monogram);
+            return monogram;
         }
-        return null;
+        Drawable fallback = e.icon != null ? whiteSilhouette(e.icon) : null;
+        if (fallback != null) cleanIcons.put(e.pkg, fallback);
+        return fallback;
+    }
+
+    /**
+     * The white logo shown for an app with no hand-drawn vector. An adaptive icon is tinted from its
+     * foreground layer, and any other icon is reduced to a white silhouette by brightness. Tinting the
+     * whole icon flat white (the old behaviour) painted its opaque background plate too, which is what
+     * turned Zee 5 into a blank square: its real icon is a dark plate with a white "Z5" on it.
+     */
+    private Drawable whiteSilhouette(Drawable icon) {
+        Drawable source = icon;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && icon instanceof AdaptiveIconDrawable) {
+            Drawable foreground = ((AdaptiveIconDrawable) icon).getForeground();
+            // Some launchers ship a foreground with no size of its own; drawing that gives nothing,
+            // so those keep the plain icon rather than a white block.
+            if (foreground != null && foreground.getIntrinsicWidth() > 0) source = foreground;
+        }
+        int size = Math.max(96, Math.round(48 * ctx.getResources().getDisplayMetrics().density));
+        Bitmap src = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Drawable copy = source.getConstantState() != null
+                ? source.getConstantState().newDrawable().mutate() : source.mutate();
+        copy.setBounds(0, 0, size, size);
+        copy.draw(new Canvas(src));
+
+        int[] px = new int[size * size];
+        src.getPixels(px, 0, size, 0, 0, size, size);
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i];
+            int lum = (Color.red(p) * 77 + Color.green(p) * 151 + Color.blue(p) * 28) >> 8;
+            // Drop the dark plate instead of washing it in at 10% white, which would still read as a
+            // square; everything brighter than the plate keeps its brightness as opacity.
+            int t = Math.max(0, Math.min(255, (lum - 48) * 255 / 207));
+            px[i] = ((Color.alpha(p) * t / 255) << 24) | 0x00FFFFFF;
+        }
+        src.setPixels(px, 0, size, 0, 0, size, size);
+        return new android.graphics.drawable.BitmapDrawable(ctx.getResources(), src);
+    }
+
+    /** The label shown for a tile, cleaned once per package instead of on every bind. */
+    private String cleanLabel(Entry e) {
+        if (e == null || e.pkg == null) return getCleanLabel(e);
+        String cached = cleanLabels.get(e.pkg);
+        if (cached != null) return cached;
+        String label = getCleanLabel(e);
+        cleanLabels.put(e.pkg, label);
+        return label;
     }
 
     static String getCleanLabel(Entry e) {

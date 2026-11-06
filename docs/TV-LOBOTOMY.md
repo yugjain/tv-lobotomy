@@ -19,7 +19,7 @@ CleanFrame's layout, rebuilt as a native launcher rather than a web app:
 
 - A single vertical list of apps down the left, with large type.
 - Monochrome vector icons and the app name below each one; no banner cards, no tile backgrounds.
-- Clock and date top right; Inputs / All apps / Settings bottom right, in a quiet text style.
+- Clock and date top right; Inputs / Settings bottom right, in a quiet text style.
 - Soft corner scrims (`ListScrimView`) so the wallpaper stays legible behind white text.
 - Ambient colour glow and the hero name are off by default in this theme, so the wallpaper does not
   shift colour as focus moves.
@@ -32,7 +32,8 @@ CleanFrame's layout, rebuilt as a native launcher rather than a web app:
 | `AppAdapter.java` | `item_app_list` binding, monochrome icon mapping, transparent tiles, focus alpha/scale | ~188 |
 | `Config.java` | Reads `layout`, `cleanframe_dock` and `ambient_glow` from `config.xml` and the JSON overlay | ~24 |
 | `DockDecoration.java` | Cleanframe dock pill: frosted band and rim instead of the opaque card | ~5 |
-| `ListScrimView.java` | New view: corner radial scrims, ARGB_8888 bitmap, drawn behind the list | 139 (new) |
+| `ListScrimView.java` | New view: corner radial scrims, density-scaled radius, drawn behind the list | 150 (new) |
+| `MonogramDrawable.java` | New drawable: white initial for an app that ships no icon | 57 (new) |
 | `res/layout/item_app_list.xml` | New list row: icon, label, focus background | 57 (new) |
 | `res/layout/activity_main.xml` | List container, clock/date block, utility row | — |
 | `res/values/config.xml` | `ambient_glow`, `cleanframe_dock`, `list_layout` defaults (`false`) | — |
@@ -54,7 +55,9 @@ are ordinary config keys, so reverting is `tools/theme.sh --reset` (or `layout` 
 no reinstall.
 
 Icons are matched by package name in `AppAdapter.getCleanIcon`; anything not in the map falls back to
-the app's own icon, colour-filtered white, so a new app looks deliberate without a code change.
+the app's own icon reduced to a white silhouette by brightness, so a dark icon plate (Zee 5's, for
+one) does not turn into a square. An app that declares no icon at all gets a white monogram of its
+first letter instead of the system's blank placeholder.
 
 The wallpaper is deliberately **not** committed: the CleanFrame photographs are third-party work.
 `tools/set_wallpaper.sh` crops a user-supplied 1920×1080 image and pushes it with the theme. Because
@@ -66,12 +69,10 @@ image first.
 Checked read-only over ADB, then by rebuilding:
 
 - At verification time the APK installed on the TV was byte-identical to the release artifact this
-  tree produced (SHA-256 `cd228637edbba4a6129ab7d9dd95bb2ee55527fecff629510f3d1236c9a9c64b`), and the
+  tree produced (SHA-256 `984c8db85e23023559b50c1aa867d370de11c4592f6c04c0166e26611e3b6141`), and the
   TV's package manager reported `versionCode=4`, `versionName=2.3`, with a last-update time matching
-  the build. Since then the only launcher change is mirroring the list-layout views into the Hebrew
-  layout, so upstream's "every default view exists in the Hebrew layout" test keeps passing. It is
-  inert outside Hebrew and the installed build is unchanged. Rebuilds are not byte-reproducible (zip
-  timestamps), so compare size and behaviour rather than hashes; the current build is 351,285 bytes.
+  the build. Rebuilds are not byte-reproducible (zip timestamps), so compare size and behaviour
+  rather than hashes; the current build is 352,553 bytes.
 - Home resolves to `com.gathin.tvhome/.MainActivity` and the launcher is the default HOME activity.
 - The live theme on the TV is `themes/cleanframe/config.json` verbatim (`layout: "list"`,
   `cleanframe_dock: true`), with a `theme_revision` marker from a `tools/theme.sh` push.

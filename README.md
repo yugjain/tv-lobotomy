@@ -4,7 +4,7 @@ A quiet home screen for Android TV: your apps in one column, the time in the cor
 else. Built on [CleanYourTV](https://github.com/Gathin23/cleanyourtv), styled after
 [CleanFrame](https://github.com/nthnclrk/CleanFrame).
 
-![TV Lobotomy running on a Toshiba Android TV: a left-hand list of apps, the clock and date top right, and Inputs / All apps / Settings bottom right](docs/tv-lobotomy.jpg)
+![TV Lobotomy running on a Toshiba Android TV: a left-hand list of apps, the clock and date top right, and Inputs / Settings bottom right](docs/tv-lobotomy.jpg)
 
 *Running on the TV this was built for: `Toshiba_TV_with_MIC` / `songshan`, Android TV 11.*
 
@@ -18,7 +18,7 @@ never asked for. This replaces it with a single list.
 - **Monochrome icons, transparent tiles.** White vector glyphs instead of saturated banner cards,
   with the app name underneath and a soft glass highlight that springs to whatever is focused.
 - **The clock and date, top right.** Nothing else competes for the wallpaper.
-- **Three quiet buttons, bottom right.** Inputs, All apps, Settings.
+- **Two quiet buttons, bottom right.** Inputs, Settings.
 - **Themes without a rebuild.** `themes/cleanframe/config.json` sets the layout, dock order and
   hidden apps; push it over ADB and Home restarts.
 - **No network, no background services.** A native Java app, ~350 KB installed, built for 1 GB TVs.
@@ -161,7 +161,7 @@ Everything is in `themes/cleanframe/config.json`; push it again after editing �
 
 - `dock_apps` — the list, top to bottom. Use package names from
   `TV_HOST=… tools/venv/bin/python tools/tv.py 'pm list packages'`.
-- `hidden_apps` — packages to keep out of All apps.
+- `hidden_apps` — packages to keep out of the list.
 - `layout` — `"list"` for this screen, omit it for the upstream grid.
 - `ambient_glow`, `sky_intensity`, `background_color`, `accent_color` — see
   [`themes/README.md`](themes/README.md) for the full key list.
