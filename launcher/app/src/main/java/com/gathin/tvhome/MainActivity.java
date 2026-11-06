@@ -161,6 +161,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean focusTopOnResume;
     /** The Inputs or Module cards dropdown while one is open, so onPause can close it. */
     private PopupWindow openPopup;
+    /** The daily message when the overlay is not granted; hidden when the service draws it. */
+    private TextView messageView;
+    /** The three gold lines in list mode. */
+    private GoldView goldView;
+    private int goldBottomMargin = -1;
+    private int goldRightMargin = -1;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     /** Refreshes the network pill when the connection changes: at boot Wi-Fi often connects after Home is shown. */
@@ -337,7 +343,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             };
             if (btnListInputs != null) btnListInputs.setOnKeyListener(quietUtilLeftKey);
             if (btnListSettings != null) btnListSettings.setOnKeyListener(quietUtilLeftKey);
+
+            addMessageView();
+            addGoldView();
         }
+        syncMessage();
         greeting = findViewById(R.id.greeting);
         greetingColor = greeting.getCurrentTextColor();
         btnWifi = findViewById(R.id.btnWifi);
@@ -657,6 +667,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             sky.update();
             handler.postDelayed(minuteTick, MINUTE_MS);
         }
+        syncMessage();
+        if (isListLayout) {
+            GoldRepository.start(this, rate -> {
+                if (goldView != null && !isFinishing() && !isDestroyed()) {
+                    goldView.render(rate);
+                }
+            });
+        }
         if (festive && diya != null) {
             diya.start();
             LocalDate today = LocalDate.now();
@@ -754,6 +772,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     protected void onStop() {
         super.onStop();
         started = false;
+        GoldRepository.stop();
         if (isListLayout) {
             try {
                 unregisterReceiver(dateReceiver);
@@ -787,6 +806,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        GoldRepository.stop();
         try {
             unregisterReceiver(packageReceiver);
         } catch (IllegalArgumentException ignored) {
@@ -799,6 +819,105 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             cm.unregisterNetworkCallback(vpnCallback);
         }
     }
+
+    // ---- daily message and gold block -------------------------------------------------------------
+
+    private void addMessageView() {
+        messageView = MessageView.create(this);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.BOTTOM
+                | (MessageConfig.MESSAGE_POSITION == MessageConfig.Position.BOTTOM_CENTER
+                ? Gravity.CENTER_HORIZONTAL : Gravity.END);
+        int height = root.getHeight() > 0
+                ? root.getHeight() : getResources().getDisplayMetrics().heightPixels;
+        lp.bottomMargin = MessageView.bottomMarginPx(height);
+        if (MessageConfig.MESSAGE_POSITION == MessageConfig.Position.BOTTOM_RIGHT) {
+            lp.rightMargin = MessageView.sideMarginPx(this);
+        }
+        root.addView(messageView, lp);
+
+        root.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            int rootHeight = bottom - top;
+            if (rootHeight <= 0) return;
+            int margin = MessageView.bottomMarginPx(rootHeight);
+            if (lp.bottomMargin != margin) {
+                lp.bottomMargin = margin;
+                messageView.setLayoutParams(lp);
+            }
+        });
+    }
+
+    private void addGoldView() {
+        View inputs = findViewById(R.id.btnListInputs);
+        if (!(inputs instanceof TextView)) return;
+        goldView = new GoldView(this);
+        goldView.setBaseTextSizePx(((TextView) inputs).getTextSize());
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.END | Gravity.BOTTOM;
+        root.addView(goldView, lp);
+        goldView.setVisibility(View.GONE);
+        root.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom)
+                -> positionGoldView());
+        goldView.post(this::positionGoldView);
+    }
+
+    /** Keeps the gold block 40dp above the visible Inputs label and on its text's right edge. */
+    private void positionGoldView() {
+        if (goldView == null || root == null) return;
+        View inputs = findViewById(R.id.btnListInputs);
+        if (inputs == null || inputs.getVisibility() != View.VISIBLE
+                || inputs.getWidth() == 0 || root.getWidth() == 0 || root.getHeight() == 0) {
+            goldView.setVisibility(View.GONE);
+            return;
+        }
+
+        int[] rootLocation = new int[2];
+        int[] inputsLocation = new int[2];
+        root.getLocationInWindow(rootLocation);
+        inputs.getLocationInWindow(inputsLocation);
+
+        int inputsTop = inputsLocation[1] - rootLocation[1];
+        int inputsTextRight = inputsLocation[0] - rootLocation[0]
+                + inputs.getWidth() - inputs.getPaddingEnd();
+        int gap = Math.round(GoldConfig.GAP_ABOVE_INPUTS_DP * density);
+
+        int bottomMargin = root.getHeight() - (inputsTop - gap);
+        bottomMargin = Math.max(0, bottomMargin);
+        if (goldView.getMeasuredHeight() > 0) {
+            bottomMargin = Math.min(bottomMargin,
+                    Math.max(0, root.getHeight() - goldView.getMeasuredHeight()));
+        }
+        int rightMargin = Math.max(0, root.getWidth() - inputsTextRight);
+
+        if (bottomMargin == goldBottomMargin && rightMargin == goldRightMargin) {
+            goldView.setVisibility(View.VISIBLE);
+            return;
+        }
+        goldBottomMargin = bottomMargin;
+        goldRightMargin = rightMargin;
+
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) goldView.getLayoutParams();
+        lp.gravity = Gravity.END | Gravity.BOTTOM;
+        lp.bottomMargin = bottomMargin;
+        lp.rightMargin = rightMargin;
+        goldView.setLayoutParams(lp);
+        goldView.setVisibility(View.VISIBLE);
+    }
+
+    /** The service draws over every app including this one, so the launcher's copy must be hidden. */
+    private void syncMessage() {
+        boolean allowed = Settings.canDrawOverlays(this);
+        boolean serviceStarted = allowed && OverlayService.start(this);
+        if (!allowed) OverlayService.stop(this);
+        if (messageView != null) {
+            messageView.setVisibility(serviceStarted ? View.GONE : View.VISIBLE);
+        }
+    }
+
 
     @Override
     public void onBackPressed() {

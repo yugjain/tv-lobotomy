@@ -64,4 +64,9 @@
     <string name="card_state_new">New</string>
     <string name="card_state_new_key">New key</string>
     <string name="card_state_new_label">New name</string>
+    <string name="overlay_channel_name">Daily message</string>
+    <string name="overlay_notification_title">Daily message</string>
+    <string name="overlay_notification_text">Shows the daily message over other apps</string>
+    <string name="gold_line1">GOLD %1$s · 10 g</string>
+    <string name="gold_line3">IBJA %1$s · %2$s</string>
 </resources>
